@@ -3,6 +3,8 @@ package routes
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -110,17 +112,78 @@ func SignUp(c *gin.Context) {
 		Phone:    req.Phone,
 	}
 
-	// Insert user into database
-	_, err = database.DB.NewInsert().
-		Model(user).
-		Exec(ctx)
-
+	// Start a transaction so we create user, room and room_member atomically
+	tx, err := database.DB.BeginTx(ctx, nil)
 	if err != nil {
-		log.Printf("[SignUp] insert failed: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create user",
-			"details": err.Error(),
-		})
+		log.Printf("[SignUp] failed to begin tx: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+	defer func() {
+		// ensure rollback if not committed
+		_ = tx.Rollback()
+	}()
+
+	// Insert user and get generated ID
+	_, err = tx.NewInsert().Model(user).Returning("id").Exec(ctx)
+	if err != nil {
+		log.Printf("[SignUp] insert user failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user", "details": err.Error()})
+		return
+	}
+
+	// If room name provided, create/find room and add room_member
+	if req.RoomName != nil && *req.RoomName != "" {
+		if req.Block == nil || *req.Block == "" {
+			log.Printf("[SignUp] room_name provided without block")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "block is required when room_name is provided"})
+			return
+		}
+
+		room := new(models.Room)
+		err = tx.NewSelect().
+			Model(room).
+			Where("room_number = ?", *req.RoomName).
+			Where("block = ?", *req.Block).
+			Scan(ctx)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				// create room
+				room = &models.Room{
+					Block:      *req.Block,
+					RoomNumber: *req.RoomName,
+				}
+				_, err = tx.NewInsert().Model(room).Returning("id").Exec(ctx)
+				if err != nil {
+					log.Printf("[SignUp] create room failed: %v", err)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create room"})
+					return
+				}
+			} else {
+				log.Printf("[SignUp] find room failed: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+				return
+			}
+		}
+
+		// create room_member linking user and room
+		rm := &models.RoomMember{
+			RoomID: room.ID,
+			Block:  room.Block,
+			UserID: user.ID,
+		}
+		_, err = tx.NewInsert().Model(rm).Exec(ctx)
+		if err != nil {
+			log.Printf("[SignUp] create room_member failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add room member"})
+			return
+		}
+	}
+
+	// commit transaction
+	if err := tx.Commit(); err != nil {
+		log.Printf("[SignUp] commit failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database commit failed"})
 		return
 	}
 

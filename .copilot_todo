@@ -1,0 +1,7 @@
+[x] Load .env automatically when starting the server so SHOULD_MIGRATE is applied.
+[x] Review current schema/models to understand block and room handling.
+[x] Design schema changes to include block info in rooms and room_members.
+[x] Plan Bun migration setup with migration folder and env-controlled execution.
+[x] Implement migrations, update models, and adjust signup logic.
+[x] Provide guidance on Bun migration flow and testing steps.
+[ ] Update request routes to use (block, room_number) everywhere.

@@ -17,18 +17,24 @@ CREATE TABLE users (
 -- ==============================
 CREATE TABLE rooms (
     id SERIAL PRIMARY KEY,
-    room_number TEXT UNIQUE NOT NULL,
-    created_at TIMESTAMP DEFAULT now()
+    block TEXT NOT NULL,
+    room_number TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT now(),
+    CONSTRAINT unique_room_per_block UNIQUE (block, room_number),
+    CONSTRAINT unique_room_block_id UNIQUE (id, block)
 );
 
 -- ==============================
 -- ROOM MEMBERS (WEAK ENTITY)
 -- ==============================
 CREATE TABLE room_members (
-    room_id INT REFERENCES rooms(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    room_id INT NOT NULL,
+    block TEXT NOT NULL,
+    user_id UUID NOT NULL,
     joined_at TIMESTAMP DEFAULT now(),
-    PRIMARY KEY (room_id, user_id)
+    PRIMARY KEY (room_id, block, user_id),
+    CONSTRAINT fk_room_members_room FOREIGN KEY (room_id, block) REFERENCES rooms(id, block) ON DELETE CASCADE,
+    CONSTRAINT fk_room_members_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- ==============================

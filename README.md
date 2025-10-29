@@ -53,8 +53,11 @@ DB_PASSWORD=your_password
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=dbms
+SHOULD_MIGRATE=true
 PORT=8080
 ```
+
+> `SHOULD_MIGRATE` controls whether migrations run automatically when the server boots. Set it to `false` after the schema is up to avoid re-running migrations on every start.
 
 ### 4. Run the Application
 
@@ -63,6 +66,18 @@ go run main.go
 ```
 
 The server will start on `http://localhost:8080`
+
+### 5. Managing Migrations
+
+- Migrations live under `migrations/` and are managed through [Bun Migrate](https://bun.uptrace.dev/guide/migrations.html).
+- On startup, if `SHOULD_MIGRATE=true`, the app will automatically apply any pending migrations and record them in the `bun_migrations` table.
+- To inspect the current migration status manually, run:
+
+```bash
+go run main.go # with SHOULD_MIGRATE=true in your environment
+```
+
+You can safely set `SHOULD_MIGRATE=false` once your schema is up to date.
 
 ## Project Structure
 
@@ -75,6 +90,7 @@ dmbs-backend/
 │   ├── room.go
 │   ├── room_member.go
 │   └── request.go
+├── migrations/        # Bun migration definitions
 ├── routes/            # API routes (to be implemented)
 ├── schema.sql         # PostgreSQL schema
 ├── main.go            # Application entry point
