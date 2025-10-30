@@ -314,3 +314,103 @@ func GetActiveRequest(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"request": request})
 }
+
+// GetRequestStatus fetches the most recent request and returns its current status.
+func GetRequestStatus(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	typeParam := strings.TrimSpace(c.Query("type"))
+	var requestType models.RequestType
+	if typeParam != "" {
+		requestType = models.RequestType(strings.ToLower(typeParam))
+		if requestType != models.RequestTypeCleaning && requestType != models.RequestTypeMaintenance {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Unsupported request type",
+			})
+			return
+		}
+	}
+
+	roomIDParam := strings.TrimSpace(c.Query("room_id"))
+	roomNumber := strings.TrimSpace(c.Query("room_number"))
+	blockParam := strings.TrimSpace(c.Query("block"))
+
+	var roomID int
+
+	if roomIDParam != "" {
+		parsedID, err := strconv.Atoi(roomIDParam)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid room_id",
+			})
+			return
+		}
+		roomID = parsedID
+	} else if roomNumber != "" {
+		if blockParam == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "block query parameter is required when using room_number",
+			})
+			return
+		}
+
+		var room models.Room
+		if err := database.DB.NewSelect().
+			Model(&room).
+			Where("room_number = ?", roomNumber).
+			Where("block = ?", blockParam).
+			Scan(ctx); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				c.JSON(http.StatusOK, gin.H{
+					"status":  "none",
+					"request": nil,
+				})
+				return
+			}
+
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to look up room",
+			})
+			return
+		}
+		roomID = room.ID
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "room_id or room_number query parameter is required",
+		})
+		return
+	}
+
+	request := new(models.Request)
+	query := database.DB.NewSelect().
+		Model(request).
+		Relation("Room").
+		Relation("User").
+		Where("room_id = ?", roomID).
+		Order("updated_at DESC").
+		Limit(1)
+
+	if requestType != "" {
+		query = query.Where("type = ?", requestType)
+	}
+
+	if err := query.Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusOK, gin.H{
+				"status":  "none",
+				"request": nil,
+			})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to retrieve request status",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  request.Status,
+		"request": request,
+	})
+}

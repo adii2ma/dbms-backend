@@ -66,6 +66,7 @@ func main() {
 		{
 			requests.POST("", routes.CreateRequest)
 			requests.GET("/active", routes.GetActiveRequest)
+			requests.GET("/status", routes.GetRequestStatus)
 		}
 	}
 
